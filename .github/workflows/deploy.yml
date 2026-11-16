@@ -19,6 +19,10 @@ on:
         description: 'Name of app to deploy'
         required: true
         type: string
+    outputs:
+      deploy_duration:
+        description: 'Seconds taken by the deploy job'
+        value: ${{ jobs.deploy.outputs.duration }}
     secrets:
       DISPATCH_PAT:
         description: 'PAT allowed to send repository_dispatch to the deploy repo'
@@ -90,6 +94,7 @@ jobs:
 
       - name: End timer and calculate duration
         id: set-duration
+        if: always()
         run: |
           end_time=$(date +%s)
           duration=$((end_time - ${{ env.start_time }}))
@@ -99,6 +104,8 @@ jobs:
     name: Deploy to ${{ needs.determine_deployment_target.outputs.target_folder }}
     runs-on: ubuntu-latest # Can be a fast, standard runner
     needs: [determine_deployment_target]
+    outputs:
+      duration: ${{ steps.set-duration.outputs.duration }}
     if: needs.determine_deployment_target.outputs.target_folder != '' && github.event_name != 'pull_request'
     permissions:
       contents: read
@@ -133,6 +140,7 @@ jobs:
 
       - name: End timer and calculate duration
         id: set-duration
+        if: always()
         run: |
           end_time=$(date +%s)
           duration=$((end_time - ${{ env.start_time }}))

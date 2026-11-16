@@ -93,19 +93,19 @@ jobs:
         run: |
           if [[ "$JOB_STATUS" == "success" ]]; then
             STATUS_TITLE="✅ Success"
-            COLOR=5763719
+            COLOR='#2EB67D'
           elif [[ "$JOB_STATUS" == "failure" ]]; then
             STATUS_TITLE="❌ Failed"
-            COLOR=15548997
+            COLOR='#E01E5A'
           elif [[ "$JOB_STATUS" == "started" ]]; then
             STATUS_TITLE="🟡 Started"
-            COLOR=16776960
+            COLOR='#ECB22E'
           elif [[ "$JOB_STATUS" == "cancelled" ]]; then
             STATUS_TITLE="🟡 Cancelled"
-            COLOR=16776960
+            COLOR='#ECB22E'
           else
             STATUS_TITLE="❔ Unknown"
-            COLOR=10070709
+            COLOR='#99AAB5'
           fi
 
           # Base fields (converted to Slack attachment fields)
@@ -170,4 +170,4 @@ jobs:
           }')
 
           echo "$PAYLOAD"
-          curl -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+          curl -fsS -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$SLACK_WEBHOOK_URL"

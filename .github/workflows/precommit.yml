@@ -8,11 +8,17 @@ on:
         required: false
         default: ubuntu-latest
         type: string
+    outputs:
+      precommit_duration:
+        description: 'Seconds taken by the precommit job'
+        value: ${{ jobs.precommit.outputs.duration }}
 
 jobs:
   precommit:
     name: precommit check
     runs-on: ${{ inputs.runner }}
+    outputs:
+      duration: ${{ steps.set-duration.outputs.duration }}
     steps:
       - uses: step-security/harden-runner@v2.14.0
         with:
@@ -30,9 +36,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
-          override: true
-          default: true
 
       - name: Cache Cargo registry and target
         uses: actions/cache@v4
@@ -48,8 +51,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Add rustfmt (nightly)
-        run: rustup component add --toolchain nightly rustfmt clippy
+      - name: Install nightly rustfmt and clippy
+        run: rustup toolchain install nightly --profile minimal --component rustfmt,clippy
 
       - name: Cache cargo-udeps
         id: cache-cargo-udeps
@@ -96,6 +99,7 @@ jobs:
 
       - name: End timer and calculate duration
         id: set-duration
+        if: always()
         run: |
           end_time=$(date +%s)
           duration=$((end_time - ${{ env.start_time }}))

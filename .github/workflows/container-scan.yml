@@ -20,6 +20,19 @@ on:
         required: false
         default: '["anchore", "sbom", "trivy"]'
         type: string
+    outputs:
+      anchore_scan_duration:
+        description: 'Seconds taken by the anchore scan'
+        value: ${{ jobs.scan.outputs.anchore }}
+      anchore_sbom_scan_duration:
+        description: 'Seconds taken by the sbom scan'
+        value: ${{ jobs.scan.outputs.sbom }}
+      trivy_scan_duration:
+        description: 'Seconds taken by the trivy scan'
+        value: ${{ jobs.scan.outputs.trivy }}
+      docker_scout_scan_duration:
+        description: 'Seconds taken by the scout scan'
+        value: ${{ jobs.scan.outputs.scout }}
     secrets:
       GH_ACTION_PAT:
         description: 'PAT for GHCR / private deps. Falls back to GITHUB_TOKEN'
@@ -42,6 +55,12 @@ env:
 jobs:
   scan:
     name: Container Scans
+    outputs:
+      # each matrix leg sets only its own tool's output
+      anchore: ${{ steps.set-duration.outputs.anchore }}
+      sbom: ${{ steps.set-duration.outputs.sbom }}
+      trivy: ${{ steps.set-duration.outputs.trivy }}
+      scout: ${{ steps.set-duration.outputs.scout }}
     runs-on: ubuntu-latest #[self-hosted, linux, ${{ matrix.arch }}]
 
     strategy:
@@ -62,7 +81,7 @@ jobs:
 
       - name: Start timer
         id: start-time
-        run: echo "${{ matrix.tool }}_scan_start_time=$(date +%s)" >> $GITHUB_ENV
+        run: echo "start_time=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@v5.0.0
@@ -134,9 +153,7 @@ jobs:
 
       - name: End timer and calculate duration
         id: set-duration
-        run: |
-          end_time=$(date +%s)
-          start_var="${{ matrix.tool }}_scan_start_time"
-          start_time_value="${!start_var}"
-          duration=$((end_time - start_time_value))
-          echo "${{ matrix.tool }}_scan_duration=${duration}" >> $GITHUB_OUTPUT
+        if: always()
+        env:
+          TOOL: ${{ matrix.tool }}
+        run: echo "${TOOL}=$(( $(date +%s) - start_time ))" >> "$GITHUB_OUTPUT"
