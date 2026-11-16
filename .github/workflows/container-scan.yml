@@ -80,7 +80,7 @@ jobs:
       pull-requests: write # scout PR comment
 
     steps:
-      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: audit
 
@@ -89,7 +89,7 @@ jobs:
         run: echo "start_time=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ secrets.GH_ACTION_ACTOR || github.actor }}
@@ -106,20 +106,20 @@ jobs:
 
       - name: Run Anchore Scan
         if: ${{ matrix.tool == 'anchore' }}
-        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6.5.1
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
           image: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
           fail-build: false
 
       - name: Run SBOM Scan
         if: ${{ matrix.tool == 'sbom' && matrix.arch == 'x64' }}
-        uses: anchore/sbom-action@da167eac915b4e86f08b264dbdbc867b61be6f0c # v0.20.5
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
 
       - name: Run Trivy Scan
         if: ${{ matrix.tool == 'trivy' }}
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
           format: table
@@ -129,14 +129,14 @@ jobs:
 
       - name: Log into Docker Registry (for Scout)
         if: ${{ matrix.tool == 'scout' }}
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PAT }}
 
       - name: Run Docker Scout
         if: ${{ matrix.tool == 'scout' }}
-        uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
+        uses: docker/scout-action@e7e2a72bf1485d10a58f30696b6c513b261ce4fa # v1.29.0
         with:
           command: quickview,cves,recommendations
           image: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
