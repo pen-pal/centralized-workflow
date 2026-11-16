@@ -33,6 +33,31 @@ on:
         required: false
         default: '["final"]'
         type: string
+      build_args:
+        description: "Extra docker build args, one KEY=VALUE per line"
+        required: false
+        default: ''
+        type: string
+      runner_amd64:
+        description: "Runner label for amd64 builds"
+        required: false
+        default: ubuntu-latest
+        type: string
+      runner_arm64:
+        description: "Runner label for arm64 builds"
+        required: false
+        default: ubuntu-24.04-arm
+        type: string
+    secrets:
+      GH_ACTION_PAT:
+        description: 'PAT for GHCR / private deps. Falls back to GITHUB_TOKEN'
+        required: false
+      GH_ACTION_ACTOR:
+        description: 'User for GH_ACTION_PAT. Falls back to github.actor'
+        required: false
+      GH_ACTION_USER:
+        description: 'Username passed to the build as secret github_username. Falls back to github.actor'
+        required: false
 
 env:
   REPO: ${{ inputs.repo_name }}
@@ -107,13 +132,11 @@ jobs:
         target: ${{ fromJSON(inputs.docker_targets) }}
         include:
           - arch: amd64
-            runner: large-amd64 #[self-hosted, linux, x64]
+            runner: ${{ inputs.runner_amd64 }}
             platform: linux/amd64
           - arch: arm64
-            runner: large-arm64 #[self-hosted, linux, arm64]
+            runner: ${{ inputs.runner_arm64 }}
             platform: linux/arm64
-    env:
-      ACTIONS_RESULTS_URL: ${{ matrix.arch == 'arm64' && secrets.CACHE_SERVER_URL_ARM64 || secrets.CACHE_SERVER_URL }}
 
     permissions:
       contents: read
@@ -149,8 +172,8 @@ jobs:
         uses: docker/login-action@v3.5.0
         with:
           registry: ghcr.io
-          username: ${{ secrets.GH_ACTION_ACTOR }}
-          password: ${{ secrets.GH_ACTION_PAT }}
+          username: ${{ secrets.GH_ACTION_ACTOR || github.actor }}
+          password: ${{ secrets.GH_ACTION_PAT || github.token }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3.6.0
@@ -166,13 +189,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-${{ matrix.arch }}-
 
-      - name: Echo variable
-        run: |
-          echo "------------------"
-          echo ${{ vars.FEATURES }}
-          echo $FEATURES
-          echo "------------------"
-
       - name: Build and push ${{ matrix.arch }} image
         id: build
         uses: docker/build-push-action@v6.18.0
@@ -186,16 +202,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,push-by-digest=true,name=${{ env.REGISTRY_IMAGE }},push=true
           secrets: |
-            github_token=${{ secrets.GH_ACTION_PAT }}
-            github_username=${{ secrets.GH_ACTION_USER }}
+            github_token=${{ secrets.GH_ACTION_PAT || github.token }}
+            github_username=${{ secrets.GH_ACTION_USER || github.actor }}
           build-args: |
-            RSP_TAG=${{ secrets.RSP_TAG }}
-            RSP_FILENAME=rsp-${{ matrix.arch }}
-            SOLANA_STUB_PROVER_FILENAME=solana-stub-prover-${{ matrix.arch }}
-            TXNPROVER_TAG=${{ secrets.TXNPROVER_TAG }}
             GITHUB_ORGANIZATION=${{ env.ORG }}
-            FEATURES=${{ vars.FEATURES }}
             ARCH=${{ matrix.arch }}
+            ${{ inputs.build_args }}
 
       - name: Export digest
         run: |
@@ -248,8 +260,8 @@ jobs:
         uses: docker/login-action@v3.5.0
         with:
           registry: ghcr.io
-          username: ${{ secrets.GH_ACTION_ACTOR }}
-          password: ${{ secrets.GH_ACTION_PAT }}
+          username: ${{ secrets.GH_ACTION_ACTOR || github.actor }}
+          password: ${{ secrets.GH_ACTION_PAT || github.token }}
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.0.0
@@ -295,10 +307,10 @@ jobs:
   verify-sig:
     runs-on: ubuntu-latest
     needs: merge
+    permissions:
+      packages: read
+      id-token: write # only to read this workflow's own job_workflow_ref claim
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v5.0.0
-
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.0.0
 
@@ -306,15 +318,20 @@ jobs:
         uses: docker/login-action@v3.5.0
         with:
           registry: ghcr.io
-          username: ${{ secrets.GH_ACTION_ACTOR }}
-          password: ${{ secrets.GH_ACTION_PAT }}
+          username: ${{ secrets.GH_ACTION_ACTOR || github.actor }}
+          password: ${{ secrets.GH_ACTION_PAT || github.token }}
 
       - name: Verify Image Signature
         env:
           IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.repo_name }}:${{ inputs.sha }}
-          IDENTITY: "https://github.com/${{ github.repository_owner }}/workflows/.github/workflows/build.yml@refs/heads/main"
           OIDC_ISSUER: "https://token.actions.githubusercontent.com"
         run: |
+          # Signer identity = this reusable workflow at whatever ref the caller pinned.
+          # Read it from our own OIDC token so renames, forks and pins need no edits.
+          IDENTITY="https://github.com/$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" \
+            | jq -er '.value | split(".")[1] | gsub("-";"+") | gsub("_";"/") | @base64d | fromjson | .job_workflow_ref')"
+
           echo "-------------------------------------------------------"
           echo "🔍 STARTING VERIFICATION"
           echo "📦 Image:    $IMAGE"

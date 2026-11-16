@@ -19,6 +19,13 @@ on:
         description: 'Name of app to deploy'
         required: true
         type: string
+    secrets:
+      DISPATCH_PAT:
+        description: 'PAT allowed to send repository_dispatch to the deploy repo'
+        required: true
+      DEPLOY_REPO:
+        description: 'Name of the deploy (GitOps) repo under the same owner'
+        required: true
 
 env:
   REPO: ${{ inputs.repo_name }}

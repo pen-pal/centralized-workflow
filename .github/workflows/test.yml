@@ -2,16 +2,18 @@ name: Test
 
 on:
   workflow_call:
-
-env:
-  ACTIONS_RESULTS_URL: ${{ secrets.CACHE_SERVER_URL }}
-  ACTIONS_RESULTS_URL_ARM64: ${{ secrets.CACHE_SERVER_URL_ARM64 }}
+    inputs:
+      runner:
+        description: 'Runner label for jobs that were self-hosted'
+        required: false
+        default: ubuntu-latest
+        type: string
 
 
 jobs:
   check:
     name: cargo check
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: step-security/harden-runner@v2.14.0
         with:
@@ -37,7 +39,7 @@ jobs:
 
   test:
     name: cargo test
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: step-security/harden-runner@v2.14.0
         with:
@@ -95,7 +97,7 @@ jobs:
   # Check formatting with rustfmt
   formatting:
     name: cargo fmt
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: step-security/harden-runner@v2.14.0
         with:
@@ -136,7 +138,7 @@ jobs:
 
   lint:
     name: cargo lint
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: step-security/harden-runner@v2.14.0
         with:
