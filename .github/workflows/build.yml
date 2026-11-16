@@ -4,32 +4,32 @@ on:
   workflow_call:
     inputs:
       sha:
-        description: 'SHA to use as image tag'
+        description: 'Image tag to publish, normally the commit SHA'
         required: true
         type: string
       branch_slug:
-        description: 'String to tag on image'
-        required: true
+        description: 'Unused. Kept so existing callers that pass it do not break'
+        required: false
         type: string
       repo_name:
-        description: 'Name of repo'
+        description: 'Image name under ghcr.io/<owner>/'
         required: true
         type: string
       dependency_clone:
-        description: "dependency repo to clone"
+        description: 'Unused. Kept so existing callers that pass it do not break'
         required: false
         default: false
         type: 'boolean'
       dependency_repo:
-        description: "dependency repo to clone"
+        description: 'Unused. Kept so existing callers that pass it do not break'
         required: false
         type: string
       dependency_ref:
-        description: "dependency repo to clone"
+        description: 'Unused. Kept so existing callers that pass it do not break'
         required: false
         type: string
       docker_targets:
-        description: "Build targets (JSON array)"
+        description: 'Dockerfile stages to build, as a JSON array. The first keeps plain tags, others get a -<target> suffix'
         required: false
         default: '["final"]'
         type: string
@@ -75,6 +75,7 @@ jobs:
   determine_build_target:
     name: Determine Target
     runs-on: ubuntu-latest # Can be a fast, standard runner
+    timeout-minutes: 5
     outputs:
       # Output is now based on which step successfully ran
       target_environment: ${{ steps.check_prod.outputs.environment || steps.check_public.outputs.environment || steps.check_fallback.outputs.environment }}
@@ -86,7 +87,7 @@ jobs:
 
       - name: Start timer
         id: start-time
-        run: echo "start_time=$(date +%s)" >> $GITHUB_ENV
+        run: echo "start_time=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: CHECK Production Tag (v*.*.*)
         id: check_prod
@@ -98,7 +99,7 @@ jobs:
           !contains(github.ref_name, '-test') &&
           !contains(github.ref_name, '-dev') &&
           !contains(github.ref_name, '-rc')
-        run: echo "environment=production" >> $GITHUB_OUTPUT
+        run: echo "environment=production" >> "$GITHUB_OUTPUT"
 
       - name: CHECK Public Tag (v*.*.*-pub or -beta)
         id: check_public
@@ -106,18 +107,14 @@ jobs:
           steps.check_prod.outcome != 'success' &&
           startsWith(github.ref, 'refs/tags/') &&
           (contains(github.ref_name, '-pub') || contains(github.ref_name, '-beta'))
-        run: echo "environment=public" >> $GITHUB_OUTPUT
+        run: echo "environment=public" >> "$GITHUB_OUTPUT"
 
       - name: CHECK Fallback (branch or rejected tags)
         id: check_fallback
         if: |
           steps.check_prod.outcome != 'success' &&
           steps.check_public.outcome != 'success'
-        run: echo "environment=staging" >> $GITHUB_OUTPUT
-
-      - name: Handle build failure
-        if: ${{ failure() }}
-        run: echo "Build failed. Check logs for details."
+        run: echo "environment=staging" >> "$GITHUB_OUTPUT"
 
       - name: End timer and calculate duration
         id: set-duration
@@ -125,11 +122,12 @@ jobs:
         run: |
           end_time=$(date +%s)
           duration=$((end_time - start_time))
-          echo "duration=${duration}" >> $GITHUB_OUTPUT
+          echo "duration=${duration}" >> "$GITHUB_OUTPUT"
 
   build_arch:
     name: Build Image (${{ matrix.target }} - ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     environment:
       name: ${{ needs.determine_build_target.outputs.target_environment }}
     needs: [determine_build_target]
@@ -158,7 +156,7 @@ jobs:
 
       - name: Start timer
         id: start-time
-        run: echo "start_time=$(date +%s)" >> $GITHUB_ENV
+        run: echo "start_time=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -166,9 +164,9 @@ jobs:
           persist-credentials: false
 
       - name: Prepare
-        run: |
-          platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
 
       - name: Docker meta
         id: meta
@@ -207,10 +205,11 @@ jobs:
             ${{ inputs.build_args }}
 
       - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
@@ -218,13 +217,9 @@ jobs:
           name: digests-${{ matrix.target }}-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1 # only the merge job reads it
           compression-level: 0
           overwrite: true
-
-      - name: Handle build failure
-        if: ${{ failure() }}
-        run: echo "Build failed. Check logs for details."
 
       - name: End timer and calculate duration
         id: set-duration
@@ -232,11 +227,12 @@ jobs:
         run: |
           end_time=$(date +%s)
           duration=$((end_time - start_time))
-          echo "duration=${duration}" >> $GITHUB_OUTPUT
+          echo "duration=${duration}" >> "$GITHUB_OUTPUT"
 
   merge:
     name: Merge Manifest (${{ matrix.target }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs:
       - build_arch
     strategy:
@@ -286,8 +282,10 @@ jobs:
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "${REGISTRY_IMAGE}@sha256:%s " *)
+          mapfile -t tag_args < <(jq -r '.tags[] | "-t", .' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          refs=()
+          for d in *; do refs+=("${REGISTRY_IMAGE}@sha256:${d}"); done
+          docker buildx imagetools create "${tag_args[@]}" "${refs[@]}"
 
       - name: Resolve manifest digest
         id: digest

@@ -4,59 +4,77 @@ on:
   workflow_call:
     inputs:
       sha:
+        description: 'Commit SHA (shown shortened)'
         required: true
         type: string
       branch_slug:
+        description: 'Ref name to display'
         required: true
         type: string
       repo_name:
+        description: 'Repository name (linked)'
         required: true
         type: string
       commit_message:
+        description: 'Commit message to display'
         required: true
         type: string
       commit_url:
+        description: 'Link for the commit'
         required: true
         type: string
       commit_actor:
+        description: 'Who triggered the run'
         required: true
         type: string
       event_name:
+        description: 'Triggering event name'
         required: true
         type: string
       workflow_name:
+        description: 'Workflow name shown in the title'
         required: true
         type: string
       run_url:
+        description: 'Link to the workflow run'
         required: true
         type: string
       job_status:
+        description: 'One of success, failure, started, cancelled'
         required: true
         type: string
       # Optional durations (only passed for post notify)
       anchore_scan_duration:
+        description: 'Optional duration field (seconds)'
         required: false
         type: string
       anchore_sbom_scan_duration:
+        description: 'Optional duration field (seconds)'
         required: false
         type: string
       trivy_scan_duration:
+        description: 'Optional duration field (seconds)'
         required: false
         type: string
       docker_scout_scan_duration:
+        description: 'Optional duration field (seconds)'
         required: false
         type: string
       precommit_duration:
+        description: 'Optional duration field (seconds)'
         required: false
         type: string
       build_duration:
+        description: 'Optional duration field (seconds)'
         required: false
         type: string
       deploy_duration:
+        description: 'Optional duration field (seconds)'
         required: false
         type: string
     secrets:
       SLACK_WEBHOOK_URL:
+        description: 'Slack incoming webhook URL'
         required: true
 
 permissions: {}
@@ -64,6 +82,7 @@ permissions: {}
 jobs:
   notify-slack:
     runs-on: ubuntu-latest #[self-hosted, linux, x64]
+    timeout-minutes: 5
     name: Notify Slack
     if: always()
     steps:

@@ -4,19 +4,19 @@ on:
   workflow_call:
     inputs:
       sha:
-        description: 'SHA to use as image tag'
+        description: 'Image tag to deploy'
         required: true
         type: string
       branch_slug:
-        description: 'String to tag on image'
+        description: 'Branch name, used as the target folder for non-release refs (slashes become dashes)'
         required: true
         type: string
       repo_name:
-        description: 'Name of repo'
+        description: 'Source repo name, passed through to the deploy repo'
         required: true
         type: string
       app_name:
-        description: 'Name of app to deploy'
+        description: 'App name, passed through to the deploy repo'
         required: true
         type: string
     outputs:
@@ -43,6 +43,7 @@ jobs:
   determine_deployment_target:
     name: Determine Target
     runs-on: ubuntu-latest # Can be a fast, standard runner
+    timeout-minutes: 5
     if: github.event_name != 'pull_request'
     outputs:
       target_folder: ${{ steps.check_prod.outputs.folder || steps.check_public.outputs.folder || steps.check_fallback.outputs.folder }}
@@ -54,7 +55,7 @@ jobs:
 
       - name: Start timer
         id: start-time
-        run: echo "start_time=$(date +%s)" >> $GITHUB_ENV
+        run: echo "start_time=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Sanitize branch slug
         id: sanitize
@@ -72,7 +73,7 @@ jobs:
           !contains(github.ref_name, '-test') &&
           !contains(github.ref_name, '-dev') &&
           !contains(github.ref_name, '-rc')
-        run: echo "folder=production" >> $GITHUB_OUTPUT
+        run: echo "folder=production" >> "$GITHUB_OUTPUT"
 
       - name: CHECK Public Tag (v*.*.*-pub or -beta)
         id: check_public
@@ -80,7 +81,7 @@ jobs:
           steps.check_prod.outcome != 'success' &&
           startsWith(github.ref, 'refs/tags/') &&
           (contains(github.ref_name, '-pub') || contains(github.ref_name, '-beta'))
-        run: echo "folder=public" >> $GITHUB_OUTPUT
+        run: echo "folder=public" >> "$GITHUB_OUTPUT"
 
       - name: CHECK Fallback (branch or rejected tags)
         id: check_fallback
@@ -89,21 +90,18 @@ jobs:
           steps.check_public.outcome != 'success'
         run: echo "folder=$CLEAN_BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Handle build failure
-        if: ${{ failure() }}
-        run: echo "Build failed. Check logs for details."
-
       - name: End timer and calculate duration
         id: set-duration
         if: always()
         run: |
           end_time=$(date +%s)
           duration=$((end_time - start_time))
-          echo "duration=${duration}" >> $GITHUB_OUTPUT
+          echo "duration=${duration}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy to ${{ needs.determine_deployment_target.outputs.target_folder }}
     runs-on: ubuntu-latest # Can be a fast, standard runner
+    timeout-minutes: 10
     needs: [determine_deployment_target]
     outputs:
       duration: ${{ steps.set-duration.outputs.duration }}
@@ -116,7 +114,7 @@ jobs:
 
       - name: Start timer
         id: start-time
-        run: echo "start_time=$(date +%s)" >> $GITHUB_ENV
+        run: echo "start_time=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Trigger Image Update
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
@@ -132,14 +130,10 @@ jobs:
               "sha": ${{ toJSON(inputs.sha) }}
             }
 
-      - name: Handle build failure
-        if: ${{ failure() }}
-        run: echo "Build failed. Check logs for details."
-
       - name: End timer and calculate duration
         id: set-duration
         if: always()
         run: |
           end_time=$(date +%s)
           duration=$((end_time - start_time))
-          echo "duration=${duration}" >> $GITHUB_OUTPUT
+          echo "duration=${duration}" >> "$GITHUB_OUTPUT"
