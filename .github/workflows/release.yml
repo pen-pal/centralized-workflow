@@ -1,17 +1,135 @@
-name: Move major tag
+name: Release
 
-# Runs on this repo only: publishing release vX.Y.Z points the moving vX tag at it.
+# Runs on this repo only. See RELEASING.md.
+# - workflow_dispatch: check the release gates, tag vX.Y.Z, publish the release, move vX.
+# - release published by hand in the UI: move vX only.
 
 on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Part of the latest vX.Y.Z to bump'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      dry_run:
+        description: 'Check the gates and print the release notes, create nothing'
+        type: boolean
+        default: false
   release:
     types: [published]
 
 permissions: {}
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  cut:
+    name: Gate and cut release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the tag and release
+      actions: read # read this repo's Lint runs
+    outputs:
+      tag: ${{ steps.cut.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Repo that calls these workflows at @main on real runners.
+      E2E_REPO: ${{ vars.E2E_REPO || format('{0}-test', github.repository) }}
+      BUMP: ${{ inputs.bump }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Check gates and cut release
+        id: cut
+        run: |
+          set -euo pipefail
+          R="$GITHUB_REPOSITORY"
+          sha="$GITHUB_SHA"
+          fail() { echo "::error::$*"; exit 1; }
+
+          # Gate 1: release only the current head of main.
+          [ "$GITHUB_REF" = refs/heads/main ] || fail "run from main, not $GITHUB_REF"
+          [ "$(gh api "repos/$R/commits/main" -q .sha)" = "$sha" ] || fail "main moved past $sha; run again"
+
+          # Gate 2: Lint passed on the push of this commit. Its start time is when the commit landed.
+          landed=$(gh api "repos/$R/actions/workflows/lint.yml/runs?head_sha=$sha&event=push" \
+            | jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].created_at // empty')
+          [ -n "$landed" ] || fail "no successful Lint run for $sha"
+
+          # Gate 3: both E2E suites passed in a run that started after the commit landed, so they ran it.
+          verified=""
+          for wf in build.yml rust.yml; do
+            url=$(gh api "repos/$E2E_REPO/actions/workflows/$wf/runs?status=success&per_page=30" \
+              | jq -r --arg t "$landed" '[.workflow_runs[] | select(.created_at > $t)][0].html_url // empty')
+            [ -n "$url" ] || fail "no successful $E2E_REPO $wf run since $landed; run: gh workflow run $wf -R $E2E_REPO"
+            verified+="- [$wf]($url)"$'\n'
+          done
+
+          # Next version from the highest vX.Y.Z tag.
+          latest=$(gh api "repos/$R/git/matching-refs/tags/v" -q '.[].ref | ltrimstr("refs/tags/")' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          IFS=. read -r major minor patch <<< "${latest:-v0.0.0}"
+          major="${major#v}"
+          case "$BUMP" in
+            major) next="v$((major + 1)).0.0" ;;
+            minor) next="v$major.$((minor + 1)).0" ;;
+            *)     next="v$major.$minor.$((patch + 1))" ;;
+          esac
+
+          # Notes: commit subjects since the last release, how to pin, and what verified it.
+          {
+            echo "## Changes"
+            if [ -n "$latest" ]; then
+              [ "$(gh api "repos/$R/commits/$latest" -q .sha)" != "$sha" ] || fail "nothing to release: $latest is $sha"
+              gh api "repos/$R/compare/$latest...$sha" \
+                -q '.commits[] | "- \(.commit.message | split("\n")[0]) (\(.sha[0:7]))"'
+              echo
+              echo "**Full diff:** https://github.com/$R/compare/$latest...$next"
+            else
+              echo "- First release"
+            fi
+            echo
+            echo "## Use it"
+            echo
+            echo '```yaml'
+            echo "uses: $R/.github/workflows/build.yml@${next%%.*}       # follows every ${next%%.*}.x release"
+            echo "uses: $R/.github/workflows/build.yml@$next   # this release only"
+            echo '```'
+            echo
+            echo "## Verified by"
+            echo
+            echo "Commit \`${sha:0:7}\` passed Lint and, in \`$E2E_REPO\`:"
+            echo
+            printf '%s' "$verified"
+          } > notes.md
+
+          echo "📦 ${latest:-none} -> $next ($BUMP) at $sha"
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$DRY_RUN" = true ]; then
+            echo "::notice::dry run: would release $next"
+            exit 0
+          fi
+          gh release create "$next" --repo "$R" --target "$sha" --title "$next" --notes-file notes.md
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+  # A release made with GITHUB_TOKEN triggers no other workflow, so the major tag moves here too.
   move-major-tag:
     name: Point major tag at release
-    if: ${{ !github.event.release.prerelease }}
+    needs: cut
+    if: >-
+      always() && (
+        (needs.cut.result == 'success' && needs.cut.outputs.tag != '') ||
+        (github.event_name == 'release' && !github.event.release.prerelease)
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -24,7 +142,7 @@ jobs:
       - name: Move tag
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.cut.outputs.tag || github.event.release.tag_name }}
         run: |
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::notice::$TAG is not vX.Y.Z; major tag left alone"

@@ -86,6 +86,7 @@ folder in the deploy repo) classify the ref the same way:
 ## Usage
 
 Pin the reference: `@v1` tracks the latest v1.x release; for an immutable pin use a commit SHA.
+See [Which ref to pin](RELEASING.md#which-ref-to-pin).
 
 ```yaml
 name: CI
@@ -393,15 +394,17 @@ breakage.
 
 ### Releasing
 
-`main` is the staging line; callers pin `@v1`.
+`main` is the staging line; callers pin `@v1`. The
+[`release.yml`](.github/workflows/release.yml) workflow checks that Lint and
+the test repo passed on the head of `main`, tags the next `vX.Y.Z`, publishes
+the release notes and moves `vX`:
 
-1. Merge to `main`.
-2. Run the test repo against it:
-   `gh workflow run build.yml -R pen-pal/centralized-workflow-test` and
-   `gh workflow run rust.yml -R pen-pal/centralized-workflow-test`.
-3. When both pass, publish a release `vX.Y.Z` from that commit.
-   [`release.yml`](.github/workflows/release.yml) then moves `vX` to it.
-   Prereleases and non-semver tags leave `vX` alone.
+```sh
+gh workflow run release.yml -R pen-pal/centralized-workflow -f bump=patch
+```
+
+[RELEASING.md](RELEASING.md) covers the versioning policy, which ref to
+pin, the full cycle, hotfixes, rollback and major versions.
 
 ## License
 
