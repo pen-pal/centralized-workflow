@@ -19,6 +19,11 @@ on:
         description: 'App name, passed through to the deploy repo'
         required: true
         type: string
+      digest:
+        description: 'Image digest (build.yml output digest), passed through so the deploy repo can pin it'
+        required: false
+        default: ''
+        type: string
     outputs:
       deploy_duration:
         description: 'Seconds taken by the deploy job'
@@ -127,7 +132,8 @@ jobs:
               "target_dir": ${{ toJSON(needs.determine_deployment_target.outputs.target_folder) }},
               "repo_name": ${{ toJSON(inputs.repo_name) }},
               "app_name": ${{ toJSON(inputs.app_name) }},
-              "sha": ${{ toJSON(inputs.sha) }}
+              "sha": ${{ toJSON(inputs.sha) }},
+              "digest": ${{ toJSON(inputs.digest) }}
             }
 
       - name: End timer and calculate duration

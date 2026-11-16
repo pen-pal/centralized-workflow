@@ -10,8 +10,8 @@ Application repos call them with `uses:` instead of copying pipeline YAML.
 | [`test.yml`](.github/workflows/test.yml) | `cargo test`, `cargo fmt --check`, `clippy -D warnings`, unused (`cargo-udeps`) and outdated dependency report |
 | [`precommit.yml`](.github/workflows/precommit.yml) | Runs the caller's `.pre-commit-config.yaml` and posts the output to the job summary |
 | [`audit.yml`](.github/workflows/audit.yml) | `cargo audit` (RustSec), `cargo pants` (OSS Index), `cargo deny check` |
-| [`build.yml`](.github/workflows/build.yml) | Builds amd64 + arm64 images on native runners, pushes to GHCR, merges a manifest list per target, signs and verifies it with cosign |
-| [`container-scan.yml`](.github/workflows/container-scan.yml) | Anchore, SBOM, Trivy (gating) and optional Docker Scout scans of the image |
+| [`build.yml`](.github/workflows/build.yml) | Builds amd64 + arm64 images on native runners with SBOM and provenance attestations, pushes to GHCR, merges a manifest list per target, signs and verifies it with cosign |
+| [`container-scan.yml`](.github/workflows/container-scan.yml) | Anchore, SBOM, Trivy (gating) and optional Docker Scout scans of every arch, by digest |
 | [`deploy.yml`](.github/workflows/deploy.yml) | Works out the target environment from the ref and sends `repository_dispatch` to a GitOps deploy repo |
 | [`notify.yml`](.github/workflows/notify.yml) | Slack alert with commit details, status and per-stage durations |
 
@@ -63,6 +63,10 @@ Design choices:
 - **Identity from the token.** Verification reads `job_workflow_ref` from
   the job's own OIDC token, so it keeps working when the repo is renamed,
   forked, or called at a tag or SHA.
+- **Scan and deploy what was signed.** `build.yml` outputs the signed
+  manifest list digest. Pass it to `container-scan.yml`, which scans each
+  arch's own image by digest, and to `deploy.yml`, which forwards it to the
+  deploy repo. A tag overwritten in between changes nothing.
 - **Layer cache** uses the GitHub Actions cache backend (`type=gha`), scoped
   per target and arch.
 
@@ -134,6 +138,7 @@ jobs:
     uses: pen-pal/centralized-workflow/.github/workflows/container-scan.yml@v1
     with:
       sha: ${{ github.sha }}
+      digest: ${{ needs.build.outputs.digest }}
       repo_name: ${{ github.event.repository.name }}
 
   deploy:
@@ -142,6 +147,7 @@ jobs:
     uses: pen-pal/centralized-workflow/.github/workflows/deploy.yml@v1
     with:
       sha: ${{ github.sha }}
+      digest: ${{ needs.build.outputs.digest }}
       branch_slug: ${{ github.ref_name }}
       repo_name: ${{ github.event.repository.name }}
       app_name: my-app
@@ -244,8 +250,10 @@ Needs `contents: read`, `packages: write`, `id-token: write`.
 | Output | Description |
 | --- | --- |
 | `build_duration` | Seconds taken by the last image build job to finish |
+| `digest` | Manifest list digest (`sha256:...`) of the first docker target, as signed |
 
-Tags: `<sha>`, plus `<version>` and `<major>.<minor>` on semver tags.
+Tags: `<sha>`, plus `<version>` and `<major>.<minor>` on semver tags. Each
+image carries BuildKit SBOM and provenance (`mode=min`) attestations.
 
 ### container-scan.yml
 
@@ -253,8 +261,10 @@ Needs `packages: read`, plus `pull-requests: write` for the Scout PR comment.
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
-| `sha` | yes | | Image tag to scan |
+| `sha` | yes | | Image tag to scan. Ignored when `digest` is set |
+| `digest` | no | | Manifest list digest to scan instead of the tag, normally `build.yml`'s `digest` output |
 | `repo_name` | yes | | Image name under `ghcr.io/<owner>/` |
+| `archs` | no | `["amd64", "arm64"]` | Architectures to scan, as a JSON array. `sbom` and `scout` run on amd64 only |
 | `tools` | no | `["anchore", "sbom", "trivy"]` | Scanners to run, as a JSON array. Add `"scout"` only with `DOCKER_USER` / `DOCKER_PAT` set |
 | `fail_severity` | no | `CRITICAL,HIGH` | Trivy fails the scan on fixable findings of these severities. Empty disables the gate |
 | `branch_slug` | no | | Unused. Kept so existing callers that pass it do not break |
@@ -276,11 +286,13 @@ Needs `packages: read`, plus `pull-requests: write` for the Scout PR comment.
 ### deploy.yml
 
 Needs no token permissions; it uses `DISPATCH_PAT`. Sends event type
-`update-image-tag` with payload `target_dir`, `repo_name`, `app_name`, `sha`.
+`update-image-tag` with payload `target_dir`, `repo_name`, `app_name`, `sha`,
+`digest` (empty string when not passed).
 
 | Input | Required | Description |
 | --- | --- | --- |
 | `sha` | yes | Image tag to deploy |
+| `digest` | no | Image digest, normally `build.yml`'s `digest` output, forwarded so the deploy repo can pin it |
 | `branch_slug` | yes | Branch name, used as the target folder for non-release refs |
 | `repo_name` | yes | Source repo name, passed through to the deploy repo |
 | `app_name` | yes | App name, passed through to the deploy repo |
@@ -322,6 +334,13 @@ cosign verify \
 
 Replace `refs/heads/main` with the ref your caller pins, e.g. `refs/tags/v1`.
 The build log prints the exact command for each image.
+
+Read the attestations BuildKit attached:
+
+```sh
+docker buildx imagetools inspect ghcr.io/<owner>/<repo>:<sha> --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/<owner>/<repo>:<sha> --format '{{ json .Provenance }}'
+```
 
 ## Security
 
@@ -366,7 +385,23 @@ act push -W .github/workflows/ci.yml -P ubuntu-latest=catthehacker/ubuntu:act-24
 ```
 
 `build.yml`, `container-scan.yml` and `deploy.yml` need GHCR and real
-tokens, so test those on a branch of a real caller repo.
+tokens. [pen-pal/centralized-workflow-test](https://github.com/pen-pal/centralized-workflow-test)
+calls every workflow except `notify.yml` at `@main` on real runners and
+asserts the results: tags, multi-arch manifests, signatures, attestations,
+the deploy payload and every output. It also runs weekly to catch upstream
+breakage.
+
+### Releasing
+
+`main` is the staging line; callers pin `@v1`.
+
+1. Merge to `main`.
+2. Run the test repo against it:
+   `gh workflow run build.yml -R pen-pal/centralized-workflow-test` and
+   `gh workflow run rust.yml -R pen-pal/centralized-workflow-test`.
+3. When both pass, publish a release `vX.Y.Z` from that commit.
+   [`release.yml`](.github/workflows/release.yml) then moves `vX` to it.
+   Prereleases and non-semver tags leave `vX` alone.
 
 ## License
 

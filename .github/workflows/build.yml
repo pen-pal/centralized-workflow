@@ -52,6 +52,9 @@ on:
       build_duration:
         description: 'Seconds taken by the last image build job to finish'
         value: ${{ jobs.build_arch.outputs.duration }}
+      digest:
+        description: 'Manifest list digest (sha256:...) of the first docker target, as signed'
+        value: ${{ jobs.merge.outputs.digest }}
     secrets:
       GH_ACTION_PAT:
         description: 'PAT for GHCR / private deps. Falls back to GITHUB_TOKEN'
@@ -194,6 +197,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           # Always pushes (by digest, untagged), PRs included: the merge and scan jobs need the image.
           outputs: type=image,push-by-digest=true,name-canonical=true,name=${{ env.REGISTRY_IMAGE }},push=true
+          # SBOM attestation next to the default (min) provenance, carried into the manifest list.
+          sbom: true
           cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}-${{ matrix.arch }}
           secrets: |
@@ -235,6 +240,8 @@ jobs:
     timeout-minutes: 20
     needs:
       - build_arch
+    outputs:
+      digest: ${{ steps.digest.outputs.first }} # only the first target's leg sets it
     strategy:
       fail-fast: false
       matrix:
@@ -289,11 +296,14 @@ jobs:
 
       - name: Resolve manifest digest
         id: digest
+        env:
+          FIRST: ${{ matrix.target == fromJSON(inputs.docker_targets)[0] }}
         run: |
           # Sign and verify the immutable digest, never a tag that can be moved.
           tag=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
           digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -er .digest)
           echo "ref=${REGISTRY_IMAGE}@${digest}" >> "$GITHUB_OUTPUT"
+          if [ "$FIRST" = true ]; then echo "first=${digest}" >> "$GITHUB_OUTPUT"; fi
           echo "📦 $tag -> $digest"
 
       - name: Sign the image

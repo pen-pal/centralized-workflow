@@ -4,8 +4,18 @@ on:
   workflow_call:
     inputs:
       sha:
-        description: 'Image tag to scan'
+        description: 'Image tag to scan. Ignored when digest is set'
         required: true
+        type: string
+      digest:
+        description: 'Manifest list digest to scan instead of the sha tag, e.g. build.yml output digest'
+        required: false
+        default: ''
+        type: string
+      archs:
+        description: 'Architectures to scan (JSON array). sbom and scout run on amd64 only'
+        required: false
+        default: '["amd64", "arm64"]'
         type: string
       branch_slug:
         description: 'Unused. Kept so existing callers that pass it do not break'
@@ -66,13 +76,16 @@ jobs:
       sbom: ${{ steps.set-duration.outputs.sbom }}
       trivy: ${{ steps.set-duration.outputs.trivy }}
       scout: ${{ steps.set-duration.outputs.scout }}
-    runs-on: ubuntu-latest #[self-hosted, linux, ${{ matrix.arch }}]
+    runs-on: ubuntu-latest # scanners read the image; no need to run on the target arch
     timeout-minutes: 30
 
     strategy:
       matrix:
-        arch: [x64]
+        arch: ${{ fromJSON(inputs.archs) }}
         tool: ${{ fromJSON(inputs.tools) }}
+        exclude: # one SBOM artifact and one Scout PR comment per image
+          - { tool: sbom, arch: arm64 }
+          - { tool: scout, arch: arm64 }
       fail-fast: false
 
     permissions:
@@ -95,33 +108,40 @@ jobs:
           username: ${{ secrets.GH_ACTION_ACTOR || github.actor }}
           password: ${{ secrets.GH_ACTION_PAT || github.token }}
 
-      - name: Pull Docker Image
+      - name: Resolve and pull the ${{ matrix.arch }} image
         env:
           ARCH: ${{ matrix.arch }}
+          DIGEST: ${{ inputs.digest }}
         run: |
-          if [ "$ARCH" = "x64" ]; then
-            ARCH="amd64"
-          fi
-          docker pull --platform "linux/$ARCH" "ghcr.io/$ORG/$REPO:$SHA"
+          base="ghcr.io/$ORG/$REPO"
+          src="${base}:${SHA}"
+          if [ -n "$DIGEST" ]; then src="${base}@${DIGEST}"; fi
+          # Pin this arch's own manifest digest, so every scanner sees exactly that image.
+          digest=$(docker buildx imagetools inspect --raw "$src" \
+            | jq -er --arg a "$ARCH" '[.manifests[]? | select(.platform.os == "linux" and .platform.architecture == $a) | .digest][0]') \
+            || { echo "::error::no linux/$ARCH image in $src"; exit 1; }
+          echo "IMAGE=${base}@${digest}" >> "$GITHUB_ENV"
+          echo "🔎 $src (linux/$ARCH) -> ${base}@${digest}"
+          docker pull "${base}@${digest}"
 
       - name: Run Anchore Scan
         if: ${{ matrix.tool == 'anchore' }}
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
-          image: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
+          image: ${{ env.IMAGE }}
           fail-build: false
 
       - name: Run SBOM Scan
-        if: ${{ matrix.tool == 'sbom' && matrix.arch == 'x64' }}
+        if: ${{ matrix.tool == 'sbom' }}
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          image: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
+          image: ${{ env.IMAGE }}
 
       - name: Run Trivy Scan
         if: ${{ matrix.tool == 'trivy' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
+          image-ref: ${{ env.IMAGE }}
           format: table
           ignore-unfixed: true
           severity: ${{ inputs.fail_severity || 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL' }}
@@ -139,7 +159,7 @@ jobs:
         uses: docker/scout-action@e7e2a72bf1485d10a58f30696b6c513b261ce4fa # v1.29.0
         with:
           command: quickview,cves,recommendations
-          image: ghcr.io/${{ env.ORG }}/${{ env.REPO }}:${{ env.SHA }}
+          image: ${{ env.IMAGE }}
           ignore-unchanged: true
           only-severities: critical,high
           write-comment: true
