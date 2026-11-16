@@ -46,7 +46,7 @@ jobs:
       target_folder: ${{ steps.check_prod.outputs.folder || steps.check_public.outputs.folder || steps.check_fallback.outputs.folder }}
       
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 
@@ -112,7 +112,7 @@ jobs:
       id-token: write
     
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 

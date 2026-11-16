@@ -15,7 +15,7 @@ jobs:
     name: cargo check
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 
@@ -38,7 +38,7 @@ jobs:
     name: cargo test
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 
@@ -93,7 +93,7 @@ jobs:
     name: cargo fmt
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 
@@ -131,7 +131,7 @@ jobs:
     name: cargo lint
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 

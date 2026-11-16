@@ -13,7 +13,7 @@ jobs:
   cargo_audit:
     runs-on: ubuntu-latest # [self-hosted, linux, x64]
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
       - uses: actions/checkout@v5.0.0
@@ -46,7 +46,7 @@ jobs:
   cargo_deny_audit:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 

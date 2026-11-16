@@ -78,7 +78,7 @@ jobs:
       target_environment: ${{ steps.check_prod.outputs.environment || steps.check_public.outputs.environment || steps.check_fallback.outputs.environment }}
       
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 
@@ -151,7 +151,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 
@@ -250,7 +250,7 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@v2.16.0
         with:
           egress-policy: audit
 
