@@ -2,6 +2,51 @@
 
 How versions of these reusable workflows are numbered, tested and published.
 
+## Release checklist
+
+Copy and follow top to bottom. Details for each step are further down.
+
+```sh
+R=pen-pal/centralized-workflow
+T=pen-pal/centralized-workflow-test
+```
+
+- [ ] **1. Changes are on `main`** and Lint passed on the push:
+      `gh run list -R $R -w "Lint workflows" -L 1`
+- [ ] **2. README is current** if any input, output, secret or permission changed
+      (the [Reference](README.md#reference) tables and the usage example).
+- [ ] **3. Pick the bump** with the [versioning policy](#versioning-policy):
+      `patch`, `minor` or `major`. For `major`, write the upgrade notes first
+      ([Breaking changes](#breaking-changes-next-major)).
+- [ ] **4. Run the test repo** against `main` and wait for both to pass:
+      ```sh
+      gh workflow run build.yml -R $T
+      gh workflow run rust.yml  -R $T
+      gh run list -R $T -w "E2E test" -L 1      # completed success
+      gh run list -R $T -w "Rust checks" -L 1   # completed success
+      ```
+      Deploy fails if `DISPATCH_PAT` there has expired; see [Test repo upkeep](#test-repo-upkeep).
+- [ ] **5. Dry run** the release and read the notes in the run summary:
+      ```sh
+      gh workflow run release.yml -R $R -f bump=patch -f dry_run=true
+      gh run watch -R $R "$(gh run list -R $R -w Release -L 1 --json databaseId -q '.[0].databaseId')"
+      ```
+- [ ] **6. Release:**
+      `gh workflow run release.yml -R $R -f bump=patch`
+- [ ] **7. Check the result:**
+      ```sh
+      gh release view -R $R                       # new vX.Y.Z, notes link the test runs
+      git ls-remote --tags https://github.com/$R  # vX and vX.Y.Z on the same commit
+      ```
+- [ ] **8. Major only:** put the upgrade notes above the generated ones, then tell callers:
+      ```sh
+      { cat upgrade.md; echo; gh release view vX.0.0 -R $R --json body -q .body; } > notes.md
+      gh release edit vX.0.0 -R $R --notes-file notes.md
+      ```
+
+If a gate fails, the run says which one and how to fix it. Nothing is
+created until every gate passes.
+
 ## Which ref to pin
 
 | Pin | Moves? | Use when |

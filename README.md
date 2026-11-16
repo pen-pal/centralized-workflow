@@ -15,6 +15,8 @@ Application repos call them with `uses:` instead of copying pipeline YAML.
 | [`deploy.yml`](.github/workflows/deploy.yml) | Works out the target environment from the ref and sends `repository_dispatch` to a GitOps deploy repo |
 | [`notify.yml`](.github/workflows/notify.yml) | Slack alert with commit details, status and per-stage durations |
 
+Maintainers: releases follow the checklist in [RELEASING.md](RELEASING.md).
+
 ## Architecture
 
 A typical caller pipeline. Each box is one reusable workflow; the caller
