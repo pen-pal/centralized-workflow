@@ -9,19 +9,26 @@ on:
         default: ubuntu-latest
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   cargo_audit:
     runs-on: ubuntu-latest # [self-hosted, linux, x64]
+    permissions:
+      contents: read
+      checks: write # audit-check reports results as a check run
+      issues: write # and opens issues on scheduled runs
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
-      - uses: actions/checkout@v5.0.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
       - name: Cache Cargo registry and target
-        uses: actions/cache@v5.0.1
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
         with:
           path: |
             ~/.cargo/bin/
@@ -34,7 +41,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ github.token }}
 
       - name: Remove Private Repo
         run: rm -f ~/.git-credentials
@@ -46,15 +55,15 @@ jobs:
   cargo_deny_audit:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v5.0.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.14
+      - uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14
         with:
           log-level: warn
           manifest-path: ./Cargo.toml

@@ -10,20 +10,23 @@ on:
         type: string
 
 
+permissions:
+  contents: read
+
 jobs:
   check:
     name: cargo check
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v5.0.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
 
@@ -38,20 +41,20 @@ jobs:
     name: cargo test
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v5.0.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
 
       - name: Cache Cargo registry and target
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin/
@@ -93,21 +96,21 @@ jobs:
     name: cargo fmt
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v5.0.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
       # Ensure rustfmt is installed and setup problem matcher
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
 
       - name: Cache Cargo registry and target
-        uses: actions/cache@v5.0.1
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
         with:
           path: |
             ~/.cargo/bin/
@@ -121,8 +124,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Rustfmt Check
-        uses: actions-rust-lang/rustfmt@v1
-
+        uses: actions-rust-lang/rustfmt@4066006ec54a31931b9b1fddfd38f2fdf2d27143 # v1
       - name: Handle build failure
         if: ${{ failure() }}
         run: echo "Build failed. Check logs for details."
@@ -131,20 +133,20 @@ jobs:
     name: cargo lint
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v5.0.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
 
       - name: Cache Cargo registry and target
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin/

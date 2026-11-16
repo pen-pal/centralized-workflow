@@ -31,6 +31,8 @@ on:
         description: 'Name of the deploy (GitOps) repo under the same owner'
         required: true
 
+permissions: {}
+
 env:
   REPO: ${{ inputs.repo_name }}
   ORG: ${{ github.repository_owner }}
@@ -46,7 +48,7 @@ jobs:
       target_folder: ${{ steps.check_prod.outputs.folder || steps.check_public.outputs.folder || steps.check_fallback.outputs.folder }}
       
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
@@ -56,10 +58,9 @@ jobs:
 
       - name: Sanitize branch slug
         id: sanitize
-        run: |
-          CLEAN_BRANCH="${{ inputs.branch_slug }}"
-          BRANCH="${CLEAN_BRANCH//\//-}"
-          echo "CLEAN_BRANCH=$BRANCH" >> $GITHUB_ENV # Set for use in fallback
+        env:
+          BRANCH_SLUG: ${{ inputs.branch_slug }}
+        run: echo "CLEAN_BRANCH=${BRANCH_SLUG//\//-}" >> "$GITHUB_ENV" # Set for use in fallback
 
       - name: CHECK Production Tag (v*.*.*)
         id: check_prod
@@ -86,7 +87,7 @@ jobs:
         if: |
           steps.check_prod.outcome != 'success' &&
           steps.check_public.outcome != 'success'
-        run: echo "folder=${{ env.CLEAN_BRANCH }}" >> $GITHUB_OUTPUT
+        run: echo "folder=$CLEAN_BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Handle build failure
         if: ${{ failure() }}
@@ -97,7 +98,7 @@ jobs:
         if: always()
         run: |
           end_time=$(date +%s)
-          duration=$((end_time - ${{ env.start_time }}))
+          duration=$((end_time - start_time))
           echo "duration=${duration}" >> $GITHUB_OUTPUT
 
   deploy:
@@ -107,12 +108,9 @@ jobs:
     outputs:
       duration: ${{ steps.set-duration.outputs.duration }}
     if: needs.determine_deployment_target.outputs.target_folder != '' && github.event_name != 'pull_request'
-    permissions:
-      contents: read
-      id-token: write
-    
+
     steps:
-      - uses: step-security/harden-runner@v2.14.0
+      - uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
@@ -121,17 +119,17 @@ jobs:
         run: echo "start_time=$(date +%s)" >> $GITHUB_ENV
 
       - name: Trigger Image Update
-        uses: peter-evans/repository-dispatch@v4.0.1
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ secrets.DISPATCH_PAT }} 
           repository: ${{ github.repository_owner }}/${{ secrets.DEPLOY_REPO }}
           event-type: update-image-tag
           client-payload: >
             {
-              "target_dir": "${{ needs.determine_deployment_target.outputs.target_folder }}",
-              "repo_name": "${{ inputs.repo_name }}",
-              "app_name": "${{ inputs.app_name }}",
-              "sha": "${{ inputs.sha }}"
+              "target_dir": ${{ toJSON(needs.determine_deployment_target.outputs.target_folder) }},
+              "repo_name": ${{ toJSON(inputs.repo_name) }},
+              "app_name": ${{ toJSON(inputs.app_name) }},
+              "sha": ${{ toJSON(inputs.sha) }}
             }
 
       - name: Handle build failure
@@ -143,5 +141,5 @@ jobs:
         if: always()
         run: |
           end_time=$(date +%s)
-          duration=$((end_time - ${{ env.start_time }}))
+          duration=$((end_time - start_time))
           echo "duration=${duration}" >> $GITHUB_OUTPUT
