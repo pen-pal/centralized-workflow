@@ -84,11 +84,14 @@ jobs:
             *)     next="v$major.$minor.$((patch + 1))" ;;
           esac
 
+          if [ -n "$latest" ] && [ "$(gh api "repos/$R/commits/$latest" -q .sha)" = "$sha" ]; then
+            fail "nothing to release: $latest is already $sha"
+          fi
+
           # Notes: commit subjects since the last release, how to pin, and what verified it.
           {
             echo "## Changes"
             if [ -n "$latest" ]; then
-              [ "$(gh api "repos/$R/commits/$latest" -q .sha)" != "$sha" ] || fail "nothing to release: $latest is $sha"
               gh api "repos/$R/compare/$latest...$sha" \
                 -q '.commits[] | "- \(.commit.message | split("\n")[0]) (\(.sha[0:7]))"'
               echo
