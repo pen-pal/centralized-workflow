@@ -81,7 +81,7 @@ folder in the deploy repo) classify the ref the same way:
 
 ## Usage
 
-Pin the reference. `@main` is shown for brevity; prefer a commit SHA.
+Pin the reference: `@v1` tracks the latest v1.x release; for an immutable pin use a commit SHA.
 
 ```yaml
 name: CI
@@ -101,17 +101,17 @@ permissions:
 
 jobs:
   precommit:
-    uses: pen-pal/centralized-workflow/.github/workflows/precommit.yml@main
+    uses: pen-pal/centralized-workflow/.github/workflows/precommit.yml@v1
 
   test:
-    uses: pen-pal/centralized-workflow/.github/workflows/test.yml@main
+    uses: pen-pal/centralized-workflow/.github/workflows/test.yml@v1
 
   audit:
     permissions:
       contents: read
       checks: write
       issues: write
-    uses: pen-pal/centralized-workflow/.github/workflows/audit.yml@main
+    uses: pen-pal/centralized-workflow/.github/workflows/audit.yml@v1
 
   build:
     needs: [precommit, test]
@@ -119,7 +119,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    uses: pen-pal/centralized-workflow/.github/workflows/build.yml@main
+    uses: pen-pal/centralized-workflow/.github/workflows/build.yml@v1
     with:
       sha: ${{ github.sha }}
       repo_name: ${{ github.event.repository.name }}
@@ -131,7 +131,7 @@ jobs:
     permissions:
       packages: read
       pull-requests: write
-    uses: pen-pal/centralized-workflow/.github/workflows/container-scan.yml@main
+    uses: pen-pal/centralized-workflow/.github/workflows/container-scan.yml@v1
     with:
       sha: ${{ github.sha }}
       repo_name: ${{ github.event.repository.name }}
@@ -139,7 +139,7 @@ jobs:
   deploy:
     needs: [build, scan]
     if: github.event_name != 'pull_request'
-    uses: pen-pal/centralized-workflow/.github/workflows/deploy.yml@main
+    uses: pen-pal/centralized-workflow/.github/workflows/deploy.yml@v1
     with:
       sha: ${{ github.sha }}
       branch_slug: ${{ github.ref_name }}
@@ -152,7 +152,7 @@ jobs:
   notify:
     needs: [precommit, build, scan, deploy]
     if: always()
-    uses: pen-pal/centralized-workflow/.github/workflows/notify.yml@main
+    uses: pen-pal/centralized-workflow/.github/workflows/notify.yml@v1
     with:
       sha: ${{ github.sha }}
       branch_slug: ${{ github.ref_name }}
