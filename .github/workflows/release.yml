@@ -69,8 +69,9 @@ jobs:
           # Gate 3: every E2E suite passed in a run that started after the commit landed, so it ran this code.
           verified=""
           for wf in $E2E_WORKFLOWS; do
-            url=$(gh api "repos/$E2E_REPO/actions/workflows/$wf/runs?status=success&branch=main&per_page=30" \
-              | jq -r --arg t "$landed" '[.workflow_runs[] | select(.created_at > $t)][0].html_url // empty')
+            # Filter client-side: the API's status/branch filters lag behind just-finished runs.
+            url=$(gh api "repos/$E2E_REPO/actions/workflows/$wf/runs?per_page=50" \
+              | jq -r --arg t "$landed" '[.workflow_runs[] | select(.head_branch == "main" and .conclusion == "success" and .created_at > $t)][0].html_url // empty')
             [ -n "$url" ] || fail "no successful $E2E_REPO $wf run since $landed; run: gh workflow run $wf -R $E2E_REPO"
             verified+="- [$wf]($url)"$'\n'
           done
