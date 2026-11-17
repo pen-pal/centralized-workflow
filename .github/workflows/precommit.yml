@@ -58,8 +58,19 @@ jobs:
         with:
           python-version: 3.x
 
+      # ponytail: zipapp pinned by checksum; Dependabot cannot bump it, update by hand.
       - name: Install pre-commit
-        run: pip install pre-commit
+        env:
+          VERSION: 4.7.0
+          SHA256: 393488513aed286d7a5a978a1fe79b2f5a8802927242a2d241ff10c1a8e8c885
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSLo "$RUNNER_TEMP/pre-commit.pyz" \
+            "https://github.com/pre-commit/pre-commit/releases/download/v${VERSION}/pre-commit-${VERSION}.pyz"
+          echo "${SHA256}  $RUNNER_TEMP/pre-commit.pyz" | sha256sum -c -
+          printf '#!/bin/sh\nexec python3 "%s" "$@"\n' "$RUNNER_TEMP/pre-commit.pyz" > "$RUNNER_TEMP/bin/pre-commit"
+          chmod +x "$RUNNER_TEMP/bin/pre-commit"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run pre-commit with color (console) and save plain output
         id: precommit

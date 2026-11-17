@@ -62,12 +62,6 @@ jobs:
         id: start-time
         run: echo "start_time=$(date +%s)" >> "$GITHUB_ENV"
 
-      - name: Sanitize branch slug
-        id: sanitize
-        env:
-          BRANCH_SLUG: ${{ inputs.branch_slug }}
-        run: echo "CLEAN_BRANCH=${BRANCH_SLUG//\//-}" >> "$GITHUB_ENV" # Set for use in fallback
-
       - name: CHECK Production Tag (v*.*.*)
         id: check_prod
         if: |
@@ -93,7 +87,15 @@ jobs:
         if: |
           steps.check_prod.outcome != 'success' &&
           steps.check_public.outcome != 'success'
-        run: echo "folder=$CLEAN_BRANCH" >> "$GITHUB_OUTPUT"
+        env:
+          BRANCH_SLUG: ${{ inputs.branch_slug }}
+        run: |
+          folder="${BRANCH_SLUG//\//-}"
+          if [ -z "$folder" ] || [[ "$folder" == *[[:space:][:cntrl:]]* ]]; then
+            echo "::error::branch_slug must be non-empty with no whitespace or control characters"
+            exit 1
+          fi
+          echo "folder=$folder" >> "$GITHUB_OUTPUT"
 
       - name: End timer and calculate duration
         id: set-duration

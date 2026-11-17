@@ -167,9 +167,10 @@ jobs:
           persist-credentials: false
 
       - name: Prepare
+        id: prepare
         env:
           PLATFORM: ${{ matrix.platform }}
-        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+        run: echo "pair=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
         id: meta
@@ -219,7 +220,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: digests-${{ matrix.target }}-${{ env.PLATFORM_PAIR }}
+          name: digests-${{ matrix.target }}-${{ steps.prepare.outputs.pair }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1 # only the merge job reads it
