@@ -18,14 +18,15 @@ T=pen-pal/centralized-workflow-test
 - [ ] **3. Pick the bump** with the [versioning policy](#versioning-policy):
       `patch`, `minor` or `major`. For `major`, write the upgrade notes first
       ([Breaking changes](#breaking-changes-next-major)).
-- [ ] **4. Run the test repo** against `main` and wait for both to pass:
+- [ ] **4. Run the test repo** against `main` and wait for all four to pass:
       ```sh
-      gh workflow run build.yml -R $T
-      gh workflow run rust.yml  -R $T
-      gh run list -R $T -w "E2E test" -L 1      # completed success
-      gh run list -R $T -w "Rust checks" -L 1   # completed success
+      for wf in build.yml rust.yml security.yml infra.yml; do gh workflow run $wf -R $T; done
+      for w in "E2E test" "Rust checks" Security Infra; do gh run list -R $T -w "$w" -L 1; done   # all completed success
       ```
       Deploy fails if `DISPATCH_PAT` there has expired; see [Test repo upkeep](#test-repo-upkeep).
+      If the change touches `pr-title.yml`, `dep-review.yml`, `cleanup.yml` or
+      `app-release.yml`, also exercise them: open and close a PR in the test
+      repo, and run its `app-release.yml` (see [Test repo upkeep](#test-repo-upkeep)).
 - [ ] **5. Dry run** the release and read the notes in the run summary:
       ```sh
       gh workflow run release.yml -R $R -f bump=patch -f dry_run=true
@@ -91,12 +92,22 @@ flowchart LR
 1. **Change.** Open a PR or push to `main`. [`lint.yml`](.github/workflows/lint.yml)
    runs actionlint and zizmor; both must pass.
 2. **Test.** [pen-pal/centralized-workflow-test](https://github.com/pen-pal/centralized-workflow-test)
-   calls every workflow except `notify.yml` at `@main` on real runners. It
-   runs weekly; after a merge, start it by hand:
+   calls every workflow except `notify.yml` at `@main` on real runners. Its
+   gated suites run weekly; after a merge, start them by hand:
+
+   | Suite | Covers |
+   | --- | --- |
+   | `build.yml` (E2E test) | build, container-scan, sarif-upload, dast, deploy |
+   | `rust.yml` | test, precommit, audit, coverage |
+   | `security.yml` | gitleaks, codeql, iac-scan, ossf-scorecard |
+   | `infra.yml` | terraform, k8s-validate |
+   | `pr.yml` (pull requests, not gated) | pr-title, dep-review, cleanup |
+   | `app-release.yml` (manual, not gated) | app-release |
 
    ```sh
-   gh workflow run build.yml -R pen-pal/centralized-workflow-test
-   gh workflow run rust.yml  -R pen-pal/centralized-workflow-test
+   for wf in build.yml rust.yml security.yml infra.yml; do
+     gh workflow run $wf -R pen-pal/centralized-workflow-test
+   done
    ```
 
 3. **Release.** Run [`release.yml`](.github/workflows/release.yml) on `main`,
@@ -112,8 +123,8 @@ flowchart LR
    1. **Checks the gates** and stops before creating anything if one fails:
       - it runs on the current head of `main`;
       - Lint passed on the push of that commit;
-      - both test repo suites (`build.yml`, `rust.yml`) passed in a run that
-        started after that push, so they ran this code.
+      - every gated test repo suite passed in a run on its `main` that
+        started after that push, so it ran this code.
    2. **Computes the version** by bumping the highest `vX.Y.Z` tag.
    3. **Writes the notes**: commit subjects since the last release, a diff
       link, how to pin, and links to the test runs that verified it.
@@ -124,8 +135,9 @@ flowchart LR
 A release published by hand in the GitHub UI also moves `vX`, but skips the
 gates. Prefer the workflow.
 
-The test repo defaults to `<this repo>-test`; set the repository variable
-`E2E_REPO` to use another.
+The test repo defaults to `<this repo>-test` and the gated suites to
+`build.yml rust.yml security.yml infra.yml`; override them with the
+repository variables `E2E_REPO` and `E2E_WORKFLOWS`.
 
 ## Hotfix
 
@@ -162,3 +174,10 @@ tags: callers pinned to them expect them to stay put.
   `gh secret set DISPATCH_PAT -R pen-pal/centralized-workflow-test`.
 - GitHub turns off schedules in a repo with no activity for 60 days. Turn
   them back on from its Actions tab.
+- The pull request flows (`pr.yml`): push a branch, open a PR with a
+  Conventional Commit title, rename it to a bad title (the title check must
+  fail), restore it, then merge or close it (cleanup must report the deleted
+  caches). A `Cargo.toml` change on the branch makes the PR save its own caches.
+- release-please (`app-release.yml`, manual): the first run opens a release
+  PR, merging it and running again tags the release. The repo setting
+  "Allow GitHub Actions to create and approve pull requests" is on for this.
