@@ -1,0 +1,101 @@
+name: Kubernetes Validate
+
+# Validates Kubernetes manifests and/or a Helm chart against the API schemas
+# with kubeconform. CRDs are checked against the community CRDs catalog.
+
+on:
+  workflow_call:
+    inputs:
+      manifests_path:
+        description: 'Directory of plain manifests (*.yaml, *.yml). Empty skips'
+        required: false
+        default: ''
+        type: string
+      chart_path:
+        description: 'Helm chart directory to lint and render. Empty skips'
+        required: false
+        default: ''
+        type: string
+      values_file:
+        description: 'Values file for the chart, relative to the repo root'
+        required: false
+        default: ''
+        type: string
+      kubernetes_version:
+        description: 'Kubernetes version to validate against'
+        required: false
+        default: '1.33.0'
+        type: string
+      ignore_missing_schemas:
+        description: 'Skip resources with no known schema instead of failing'
+        required: false
+        default: false
+        type: boolean
+      helm_version:
+        description: 'Helm version, e.g. v3.19.0'
+        required: false
+        default: latest
+        type: string
+
+permissions: {}
+
+jobs:
+  validate:
+    name: kubeconform
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # ponytail: release binary pinned by checksum; Dependabot cannot bump it, update by hand.
+      - name: Install kubeconform
+        env:
+          VERSION: 0.8.0
+          SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/kubeconform.tgz" \
+            "https://github.com/yannh/kubeconform/releases/download/v${VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${SHA256}  $RUNNER_TEMP/kubeconform.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/kubeconform.tgz" -C "$RUNNER_TEMP" kubeconform
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        if: inputs.chart_path != ''
+        with:
+          version: ${{ inputs.helm_version }}
+
+      - name: Lint and render chart
+        if: inputs.chart_path != ''
+        env:
+          CHART: ${{ inputs.chart_path }}
+          VALUES: ${{ inputs.values_file }}
+        run: |
+          args=()
+          if [ -n "$VALUES" ]; then args=(--values "$VALUES"); fi
+          helm lint --strict "$CHART" "${args[@]}"
+          helm template ci "$CHART" "${args[@]}" > "$RUNNER_TEMP/chart.yaml"
+
+      - name: kubeconform
+        env:
+          MANIFESTS: ${{ inputs.manifests_path }}
+          CHART: ${{ inputs.chart_path }}
+          K8S_VERSION: ${{ inputs.kubernetes_version }}
+          IGNORE_MISSING: ${{ inputs.ignore_missing_schemas }}
+        run: |
+          targets=()
+          if [ -n "$MANIFESTS" ]; then targets+=("$MANIFESTS"); fi
+          if [ -n "$CHART" ]; then targets+=("$RUNNER_TEMP/chart.yaml"); fi
+          if [ "${#targets[@]}" -eq 0 ]; then echo "::error::set manifests_path and/or chart_path"; exit 1; fi
+          flags=(-strict -summary -kubernetes-version "$K8S_VERSION"
+            -schema-location default
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json')
+          if [ "$IGNORE_MISSING" = true ]; then flags+=(-ignore-missing-schemas); fi
+          kubeconform "${flags[@]}" "${targets[@]}"

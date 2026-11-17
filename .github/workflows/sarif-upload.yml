@@ -1,0 +1,55 @@
+name: SARIF Upload
+
+# Uploads SARIF artifacts produced earlier in the same caller run (for
+# example container-scan.yml with sarif: true) to code scanning. Each
+# artifact becomes its own category, so per-arch results do not collide.
+# Needs GitHub Advanced Security on private repos.
+
+on:
+  workflow_call:
+    inputs:
+      pattern:
+        description: 'Artifact name pattern to upload'
+        required: false
+        default: 'sarif-*'
+        type: string
+
+permissions: {}
+
+jobs:
+  upload:
+    name: upload SARIF
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      security-events: write
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ${{ inputs.pattern }}
+          path: sarif
+
+      - name: Upload each artifact as its own category
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          for f in sarif/*/*.sarif; do
+            category=$(basename "$(dirname "$f")")
+            payload=$(jq '.runs[].automationDetails.id = ($c + "/")' --arg c "$category" "$f" | gzip -c | base64 -w0)
+            id=$(jq -n --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" --arg s "$payload" \
+                '{commit_sha: $sha, ref: $ref, sarif: $s}' \
+              | gh api "repos/$GH_REPO/code-scanning/sarifs" --input - -q .id)
+            for _ in $(seq 1 30); do
+              status=$(gh api "repos/$GH_REPO/code-scanning/sarifs/$id" -q .processing_status)
+              [ "$status" = pending ] || break
+              sleep 4
+            done
+            echo "📤 $category: $status ($id)"
+            [ "$status" = complete ] || { echo "::error::$category upload $status"; exit 1; }
+          done

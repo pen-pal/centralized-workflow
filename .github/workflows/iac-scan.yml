@@ -1,0 +1,77 @@
+name: IaC Scan
+
+# Trivy misconfiguration scan of Dockerfiles, Terraform, Kubernetes manifests
+# and Helm charts under a path.
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: 'Directory to scan'
+        required: false
+        default: '.'
+        type: string
+      fail_severity:
+        description: 'Fail on misconfigurations of these severities. Empty disables the gate'
+        required: false
+        default: 'CRITICAL,HIGH'
+        type: string
+      skip_dirs:
+        description: 'Comma-separated directories to skip'
+        required: false
+        default: ''
+        type: string
+      sarif:
+        description: 'Upload all findings to code scanning (needs GitHub Advanced Security on private repos)'
+        required: false
+        default: true
+        type: boolean
+
+permissions: {}
+
+jobs:
+  trivy-config:
+    name: trivy config
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # SARIF upload, used only when sarif is true
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Report every severity to code scanning, then gate on the chosen ones below.
+      - name: Trivy config (SARIF)
+        if: inputs.sarif
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.path }}
+          skip-dirs: ${{ inputs.skip_dirs }}
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: '0'
+
+      - name: Upload SARIF
+        if: inputs.sarif
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+      - name: Trivy config (gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.path }}
+          skip-dirs: ${{ inputs.skip_dirs }}
+          format: table
+          severity: ${{ inputs.fail_severity || 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL' }}
+          exit-code: ${{ inputs.fail_severity != '' && '1' || '0' }}
+          skip-setup-trivy: ${{ inputs.sarif }}

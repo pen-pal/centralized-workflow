@@ -1,0 +1,70 @@
+name: App Release
+
+# release-please for the calling app: keeps a release PR with the next
+# version and changelog from Conventional Commits; merging it tags vX.Y.Z
+# and publishes the GitHub release. Call on push to the default branch.
+#
+# Tags made with GITHUB_TOKEN do not start other workflows. Either pass
+# RELEASE_TOKEN, or run build/deploy in the same caller workflow gated on
+# the release_created output.
+
+on:
+  workflow_call:
+    inputs:
+      release_type:
+        description: 'release-please strategy: rust, simple, node, go, helm, ...'
+        required: false
+        default: rust
+        type: string
+      config_file:
+        description: 'release-please-config.json for monorepos. Empty uses release_type'
+        required: false
+        default: ''
+        type: string
+      manifest_file:
+        description: '.release-please-manifest.json, with config_file'
+        required: false
+        default: ''
+        type: string
+    outputs:
+      release_created:
+        description: '"true" when this run tagged a release'
+        value: ${{ jobs.release-please.outputs.release_created }}
+      tag_name:
+        description: 'Tag of the created release, e.g. v1.2.3'
+        value: ${{ jobs.release-please.outputs.tag_name }}
+      version:
+        description: 'Version of the created release, e.g. 1.2.3'
+        value: ${{ jobs.release-please.outputs.version }}
+    secrets:
+      RELEASE_TOKEN:
+        description: 'PAT so the release PR and tag trigger CI. Falls back to GITHUB_TOKEN'
+        required: false
+
+permissions: {}
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # tags, releases, changelog commits
+      pull-requests: write # the release PR
+      issues: write # release labels
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: rp
+        with:
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          release-type: ${{ inputs.config_file == '' && inputs.release_type || '' }}
+          config-file: ${{ inputs.config_file }}
+          manifest-file: ${{ inputs.manifest_file }}

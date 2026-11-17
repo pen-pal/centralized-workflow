@@ -1,0 +1,32 @@
+name: PR Cleanup
+
+# Call on pull_request "closed": deletes the Actions caches the PR's runs
+# created, so they stop counting against the repo's 10 GB cache limit.
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  caches:
+    name: delete PR caches
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write # delete caches
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Delete caches for the PR merge ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          mapfile -t ids < <(gh cache list --ref "$REF" --limit 1000 --json id -q '.[].id')
+          for id in "${ids[@]}"; do gh cache delete "$id"; done
+          echo "🧹 deleted ${#ids[@]} cache(s) for $REF"

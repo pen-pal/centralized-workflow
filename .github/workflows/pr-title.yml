@@ -1,0 +1,40 @@
+name: PR Title
+
+# Pull requests only: the title must be a Conventional Commit
+# ("feat(api): add login"), so squash merges feed app-release.yml.
+
+on:
+  workflow_call:
+    inputs:
+      types:
+        description: 'Allowed types, one per line. Empty uses the Conventional Commits defaults'
+        required: false
+        default: ''
+        type: string
+      require_scope:
+        description: 'Require a scope, e.g. feat(api): ...'
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  title:
+    name: conventional title
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          types: ${{ inputs.types }}
+          requireScope: ${{ inputs.require_scope }}

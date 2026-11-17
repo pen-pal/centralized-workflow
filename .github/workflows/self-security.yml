@@ -1,0 +1,41 @@
+name: Self security
+
+# Runs on this repo only: the security workflows scan the repo that ships them.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
+    with:
+      languages: '["actions"]'
+
+  secrets:
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/gitleaks.yml
+
+  scorecard:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/ossf-scorecard.yml

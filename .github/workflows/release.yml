@@ -40,6 +40,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       # Repo that calls these workflows at @main on real runners.
       E2E_REPO: ${{ vars.E2E_REPO || format('{0}-test', github.repository) }}
+      # Its suites that must pass; pull-request-only callers cannot be gated here.
+      E2E_WORKFLOWS: ${{ vars.E2E_WORKFLOWS || 'build.yml rust.yml security.yml infra.yml' }}
       BUMP: ${{ inputs.bump }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
@@ -64,9 +66,9 @@ jobs:
             | jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].created_at // empty')
           [ -n "$landed" ] || fail "no successful Lint run for $sha"
 
-          # Gate 3: both E2E suites passed in a run that started after the commit landed, so they ran it.
+          # Gate 3: every E2E suite passed in a run that started after the commit landed, so it ran this code.
           verified=""
-          for wf in build.yml rust.yml; do
+          for wf in $E2E_WORKFLOWS; do
             url=$(gh api "repos/$E2E_REPO/actions/workflows/$wf/runs?status=success&per_page=30" \
               | jq -r --arg t "$landed" '[.workflow_runs[] | select(.created_at > $t)][0].html_url // empty')
             [ -n "$url" ] || fail "no successful $E2E_REPO $wf run since $landed; run: gh workflow run $wf -R $E2E_REPO"

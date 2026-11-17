@@ -1,0 +1,82 @@
+name: Coverage
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'Runner label'
+        required: false
+        default: ubuntu-latest
+        type: string
+      min_coverage:
+        description: 'Fail when line coverage (%) is below this. 0 only reports'
+        required: false
+        default: 0
+        type: number
+    outputs:
+      line_coverage:
+        description: 'Line coverage in percent, two decimals'
+        value: ${{ jobs.coverage.outputs.lines }}
+
+permissions: {}
+
+jobs:
+  coverage:
+    name: cargo llvm-cov
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      lines: ${{ steps.report.outputs.lines }}
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Run tests with coverage
+        run: |
+          cargo llvm-cov --all-features --locked --workspace --lcov --output-path lcov.info
+          cargo llvm-cov report --json --summary-only --output-path coverage.json
+
+      - name: Report
+        id: report
+        env:
+          MIN: ${{ inputs.min_coverage }}
+        run: |
+          lines=$(jq -r '.data[0].totals.lines.percent * 100 | round / 100' coverage.json)
+          echo "lines=$lines" >> "$GITHUB_OUTPUT"
+          {
+            echo '### 🧪 Coverage'
+            echo ''
+            echo '| Lines | Functions | Regions | Minimum |'
+            echo '| --- | --- | --- | --- |'
+            jq -r --arg min "$MIN" '.data[0].totals | "| \(.lines.percent*100|round/100)% | \(.functions.percent*100|round/100)% | \(.regions.percent*100|round/100)% | \($min)% |"' coverage.json
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "line coverage ${lines}% (minimum ${MIN}%)"
+          if awk -v l="$lines" -v m="$MIN" 'BEGIN { exit !(l < m) }'; then
+            echo "::error::line coverage ${lines}% is below ${MIN}%"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          retention-days: 7

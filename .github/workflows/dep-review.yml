@@ -1,0 +1,46 @@
+name: Dependency Review
+
+# Pull requests only: fails when the PR adds a dependency with a known
+# vulnerability or a denied license. Needs the dependency graph (on by default
+# for public repos; private repos need GitHub Advanced Security).
+
+on:
+  workflow_call:
+    inputs:
+      fail_on_severity:
+        description: 'Lowest advisory severity that fails the PR: low, moderate, high or critical'
+        required: false
+        default: high
+        type: string
+      deny_licenses:
+        description: 'Comma-separated SPDX licenses that fail the PR, e.g. "GPL-3.0-only, AGPL-3.0-only"'
+        required: false
+        default: ''
+        type: string
+      comment:
+        description: 'PR summary comment: always, on-failure or never'
+        required: false
+        default: on-failure
+        type: string
+
+permissions: {}
+
+jobs:
+  review:
+    name: dependency review
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # summary comment
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: ${{ inputs.fail_on_severity }}
+          deny-licenses: ${{ inputs.deny_licenses }}
+          comment-summary-in-pr: ${{ inputs.comment }}

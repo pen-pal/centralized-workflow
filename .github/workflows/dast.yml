@@ -1,0 +1,89 @@
+name: DAST
+
+# Starts the image as a service container and runs the OWASP ZAP baseline
+# scan (passive, no attacks) against it. Pass build.yml's digest so the scan
+# hits exactly the image that was signed.
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: 'Image to run, ideally by digest: ghcr.io/<owner>/<repo>@sha256:...'
+        required: true
+        type: string
+      port:
+        description: 'Port the container listens on'
+        required: false
+        default: 8080
+        type: number
+      path:
+        description: 'Path to start crawling from'
+        required: false
+        default: '/'
+        type: string
+      fail_on_warnings:
+        description: 'Fail on WARN alerts too; by default only FAIL rules (set in rules_file) fail'
+        required: false
+        default: false
+        type: boolean
+      rules_file:
+        description: 'ZAP rules file in the caller repo (tab-separated id, IGNORE/WARN/FAIL, name)'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      GH_ACTION_PAT:
+        description: 'PAT to pull the image. Falls back to GITHUB_TOKEN'
+        required: false
+      GH_ACTION_ACTOR:
+        description: 'User for GH_ACTION_PAT. Falls back to github.actor'
+        required: false
+
+permissions: {}
+
+jobs:
+  zap-baseline:
+    name: ZAP baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # rules file
+      packages: read # pull the image from GHCR
+    services:
+      app:
+        image: ${{ inputs.image }} # zizmor: ignore[unpinned-images] caller passes a digest
+        credentials:
+          username: ${{ secrets.GH_ACTION_ACTOR || github.actor }}
+          password: ${{ secrets.GH_ACTION_PAT || github.token }}
+        ports:
+          - ${{ inputs.port }}:${{ inputs.port }}
+    steps:
+      - uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.rules_file != ''
+        with:
+          persist-credentials: false
+
+      - name: Wait for the app
+        env:
+          URL: http://localhost:${{ inputs.port }}${{ inputs.path }}
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -so /dev/null "$URL"; then echo "✅ $URL is up"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::$URL did not answer within 60s"
+          exit 1
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: http://localhost:${{ inputs.port }}${{ inputs.path }}
+          rules_file_name: ${{ inputs.rules_file }}
+          cmd_options: ${{ !inputs.fail_on_warnings && '-I' || '' }}
+          fail_action: true
+          allow_issue_writing: false
+          artifact_name: zap-report

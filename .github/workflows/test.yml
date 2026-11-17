@@ -8,6 +8,11 @@ on:
         required: false
         default: ubuntu-latest
         type: string
+      clippy_all_targets:
+        description: 'Lint tests, benches and examples with all features too (default lints the library and binaries only)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -30,17 +35,9 @@ jobs:
         with:
           toolchain: stable
 
+      # Keyed on job, toolchain and lockfile; prunes stale build output before saving.
       - name: Cache Cargo registry and target
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ github.job }}-
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Run Cargo Test
         run: cargo test --all-features --locked
@@ -63,23 +60,20 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      # Keyed on job, toolchain and lockfile; prunes stale build output before saving.
       - name: Cache Cargo registry and target
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ github.job }}-
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Format
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        env:
+          ALL_TARGETS: ${{ inputs.clippy_all_targets }}
+        run: |
+          args=()
+          if [ "$ALL_TARGETS" = true ]; then args=(--all-targets --all-features --locked); fi
+          cargo clippy "${args[@]}" -- -D warnings
 
   deps:
     name: unused + outdated deps
@@ -104,17 +98,9 @@ jobs:
         with:
           tool: cargo-udeps,cargo-outdated
 
+      # Keyed on job, toolchain and lockfile; prunes stale build output before saving.
       - name: Cache Cargo registry and target
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ github.job }}-
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Unused dependencies
         run: cargo udeps --locked

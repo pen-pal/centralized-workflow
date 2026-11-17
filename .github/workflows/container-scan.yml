@@ -35,6 +35,11 @@ on:
         required: false
         default: 'CRITICAL,HIGH'
         type: string
+      sarif:
+        description: 'Also save Trivy findings as sarif-trivy-image-<arch> artifacts, for sarif-upload.yml'
+        required: false
+        default: false
+        type: boolean
     outputs:
       anchore_scan_duration:
         description: 'Seconds taken by the anchore scan'
@@ -137,11 +142,31 @@ jobs:
         with:
           image: ${{ env.IMAGE }}
 
+      # Before the gate, so the report exists even when the gate fails.
+      - name: Trivy SARIF report
+        if: ${{ matrix.tool == 'trivy' && inputs.sarif }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          format: sarif
+          output: trivy-image.sarif
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Save SARIF report
+        if: ${{ matrix.tool == 'trivy' && inputs.sarif }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-trivy-image-${{ matrix.arch }}
+          path: trivy-image.sarif
+          retention-days: 1 # only sarif-upload.yml reads it
+
       - name: Run Trivy Scan
         if: ${{ matrix.tool == 'trivy' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}
+          skip-setup-trivy: ${{ inputs.sarif }}
           format: table
           ignore-unfixed: true
           severity: ${{ inputs.fail_severity || 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL' }}
